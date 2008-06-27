@@ -7,6 +7,7 @@ Copyright:      2008 Pedro Melo.
                 http://creativecommons.org/licenses/by-sa/2.5/
 Keywords:       mysql, master/master, replication
 XMP:            CCAttributionShareAlike
+CSS:            css/multimarkdown.css
 
 Introduction
 ============
