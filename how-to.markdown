@@ -287,7 +287,7 @@ Do this on both connections and see how the AUTO_INCREMENT columns just work.
 Final Notes
 ===========
 
-innodb_flush_log_at_trx_commit
+innodb\_flush\_log\_at\_trx_commit
 ------------------------------
 
 [One of the recommendations for InnoDB performance](http://www.mysqlperformanceblog.com/2007/11/01/innodb-performance-optimization-basics/ "Innodb Performance Optimization Basics | MySQL Performance Blog")
