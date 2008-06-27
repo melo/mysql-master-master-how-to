@@ -46,10 +46,12 @@ thread_stack = 64K
 # (using the "enable-named-pipe" option) will render mysqld useless!
 # 
 #skip-networking
-server-id	= 1
 
-# Uncomment the following if you want to log updates
+# cluster setup
+server-id	= 1
 log-bin=mysql-server-1-bin
+auto_increment_increment=2
+auto_increment_offset=1
 
 # Uncomment the following if you are NOT using BDB tables
 skip-bdb
