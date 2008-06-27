@@ -35,7 +35,11 @@ To make the process easier, define these two environment variables:
 Schema files
 ------------
 
-I'll use the Tigase MySQL schema file as my example schema.
+I'll use the
+[Tigase](http://www.tigase.org/ "tigase.org | Open Source and Free (GPLv3) Jabber/XMPP environment.")
+[MySQL schema file
+](http://projects.tigase.org/server/trac/browser/trunk/database/mysql-schema.sql "/trunk/database/mysql-schema.sql - Tigase Server - Trac")
+as my example schema.
 
 The sample data I'll insert into the database, are just made up values
 and probably not even valid from the point of view of Tigase.
