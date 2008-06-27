@@ -117,3 +117,18 @@ p,fieldset,table,pre {
    control of type=file still not possible */
 input[type=text],input[type=password],textarea{width:12.25em;*width:11.9em;}
 /* extra CSS rules */
+
+body {
+	margin-left: 1em;
+}
+
+p {
+	margin-left: 0.5em;
+}
+
+pre {
+	margin-left: 2em;
+	border: 1px solid #000;
+	background-color: #eee;
+	padding: .4em;
+}
