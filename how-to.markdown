@@ -1,3 +1,4 @@
+Format:         complete
 Title:          How-to: Master/Master replication for MySQL
 Author:         Pedro Melo
 Date:           2008-06-26
