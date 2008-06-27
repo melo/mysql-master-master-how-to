@@ -1,0 +1,362 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1 plus MathML 2.0//EN"
+	"http://www.w3.org/TR/MathML2/dtd/xhtml-math11-f.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+	<head>
+		<!-- Processed by MultiMarkdown -->
+		<meta name="Author" content="Pedro Melo" />
+		<meta name="Copyright" content="2008 Pedro Melo.  
+This work is licensed under a Creative Commons License.  
+http://creativecommons.org/licenses/by-sa/2.5/" />
+		<meta name="Date" content="2008-06-26" />
+		<meta name="Format" content="complete" />
+		<meta name="Keywords" content="mysql, master/master, replication" />
+		<title>How-to: Master/Master replication for MySQL</title>
+		<meta name="XMP" content="CCAttributionShareAlike" />
+	</head>
+<body>
+
+<h1 id="introduction">Introduction</h1>
+
+<p>This How-To will walk you through the steps to create a MySQL master/master
+setup.</p>
+
+<p>Before you setup your database like this, make sure your application supports this. You should
+<a href="http://dev.mysql.com/doc/refman/5.0/en/replication-faq.html#qandaitem-17-3-4-5" title="MySQL ::   MySQL 5.0 Reference Manual :: 16.3.4 Replication FAQ">read this FAQ entry</a>.</p>
+
+<h1 id="mastermasterreplicationpre-setup">Master/Master replication pre-setup</h1>
+
+<p>This will create two mysql servers, running on the same hardware, on
+ports 7001 and 7002.</p>
+
+<p>To make the process easier, define these two environment variables:</p>
+
+<ul>
+<li><code>MY_DIR</code>: the directory where the mysql is installed, usually
+<code>/usr/local/mysql</code>;</li>
+<li><code>HOWTO_DIR</code>: the directory where this file is located.</li>
+</ul>
+
+<h2 id="schemafiles">Schema files</h2>
+
+<p>I'll use the Tigase MySQL schema file as my example schema.</p>
+
+<p>The sample data I'll insert into the database, are just made up values
+and probably not even valid from the point of view of Tigase.</p>
+
+<h2 id="configurationfiles">Configuration files</h2>
+
+<p>The two configuration files available in the <code>etc/</code> directory are based
+on the <code>my-small.cnf</code> standard configuration file.</p>
+
+<p>The following changes where done:</p>
+
+<ul>
+<li>all paths where changed to enable two MySQL servers running
+simultaneously on the same hardware;</li>
+<li>the <code>server-id</code> setting of each server is different: for a sucessful
+replication setup, each server on the replication group must have a
+different <code>server-id</code>;</li>
+<li>"binlogs" are activated: they record all updates to the database;</li>
+<li><code>port</code> and <code>socket</code> settings: updated to be different for each
+server.</li>
+</ul>
+
+<p>For any mysql command to use a specific server, you just need to
+add a <code>--defaults-file=$HOWTO_DIR/etc/server-1.cnf</code>.</p>
+
+<h2 id="starttwoservers">Start two servers</h2>
+
+<p>Setup the two new servers:</p>
+
+<pre><code>sudo -s
+mkdir -p /tmp/server-{1,2}
+chown mysql:wheel /tmp/server-{1,2}
+cd $MY_DIR
+./scripts/mysql_install_db --defaults-file=$HOWTO_DIR/etc/server-1.cnf --user=mysql
+./scripts/mysql_install_db --defaults-file=$HOWTO_DIR/etc/server-2.cnf --user=mysql
+</code></pre>
+
+<p>Start them up:</p>
+
+<pre><code>cd $MY_DIR
+./bin/mysqld_safe --defaults-file=$HOWTO_DIR/etc/server-1.cnf --user=mysql
+./bin/mysqld_safe --defaults-file=$HOWTO_DIR/etc/server-2.cnf --user=mysql
+</code></pre>
+
+<p>At this point in time, both servers should be running. You can test by
+connecting to each one:</p>
+
+<pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root
+mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root
+</code></pre>
+
+<p><em>Please note</em> that this procedure did not set a <code>root</code> account password.
+This means that anybody can connect as <code>root</code> to your database.</p>
+
+<p>For production environments it is <em>strongly recommended</em> that you change
+the <code>root</code> password, and delete the anonymous accounts.</p>
+
+<p>For our tests purposes, we will not do that.</p>
+
+<h2 id="createsampledbwithdataonserver1">Create sample db with data on server1</h2>
+
+<p>On server-1, connect as root, and create the user used by the slave:</p>
+
+<pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root &lt; $HOWTO_DIR/sql/repl_user.sql
+</code></pre>
+
+<p>We will also create the test database, and load our test schema:</p>
+
+<pre><code>mysqladmin --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root create tigasedb
+mysql --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root tigasedb &lt; $HOWTO_DIR/sql/tigase-mysql-schema.sql
+</code></pre>
+
+<p>We should be able to see the <code>tigasedb</code> database and its tables. Lets
+insert some data on them to test:</p>
+
+<pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root tigasedb &lt; $HOWTO_DIR/sql/test-data-1.sql
+</code></pre>
+
+<h1 id="server1asmaster">Server 1 as Master</h1>
+
+<p>We need to obtain the current master replication position, create a
+stable snapshot of the data.</p>
+
+<p>Connect as root:</p>
+
+<pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root tigasedb
+</code></pre>
+
+<p>This connection must be left open for the rest of this procedure. This
+is required to leave the LOCK in place.</p>
+
+<p>Execute the following statements:</p>
+
+<pre><code>FLUSH TABLES WITH READ LOCK;
+SHOW MASTER STATUS;
+
++---------------------------+----------+--------------+------------------+
+| File                      | Position | Binlog_Do_DB | Binlog_Ignore_DB |
++---------------------------+----------+--------------+------------------+
+| mysql-server-1-bin.000003 |     4514 |              |                  |
++---------------------------+----------+--------------+------------------+
+1 row in set (0.00 sec)
+</code></pre>
+
+<p>This information tells you that the master position is the
+<code>mysql-server-1-bin.000003</code> file at 4514.</p>
+
+<p>Now create a dump of the data in the master:</p>
+
+<pre><code>mysqldump --defaults-file=$HOWTO_DIR/etc/server-1.cnf \
+          -u root \
+          --lock-all-tables \
+          tigasedb &gt; tigasedb_dump.sql
+</code></pre>
+
+<p>Now we need to setup the slave. First, create the tigasedb database and
+load the dump taken on the master:</p>
+
+<pre><code>mysqladmin --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root create tigasedb
+mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root tigasedb &lt; tigasedb_dump.sql
+</code></pre>
+
+<p>You should have the same data on both servers now.</p>
+
+<p>To finish the setup, you need to set the other master parameters on the
+slave. Connect as root:</p>
+
+<pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root
+</code></pre>
+
+<p>And setup the master link:</p>
+
+<pre><code>CHANGE MASTER TO
+       MASTER_HOST='127.0.0.1',
+       MASTER_PORT=7001,
+       MASTER_USER='repl_tig',
+       MASTER_PASSWORD='pray4sync',
+       MASTER_LOG_FILE='mysql-server-1-bin.000003',
+       MASTER_LOG_POS=4514;
+START SLAVE;
+</code></pre>
+
+<p>You can now end the server 1 session where the LOCK was created.</p>
+
+<p>You should have a proper master/slave relation working between server-1
+and server-2.</p>
+
+<p>If you look at <code>SHOW MASTER STATUS</code> on server-1 and compare to
+<code>SHOW SLAVE STATUS\G</code> (use <code>\G</code> query terminator for a more useful layout)
+on server-2, you should see the same <code>File</code> and <code>Position</code> on server-1
+as <code>Master_Log_File</code> and <code>Read_Master_Log_Pos</code> on server-2.</p>
+
+<p>To test, insert a new row in the <code>tig_user</code> table.</p>
+
+<pre><code>INSERT INTO tig_users (uid, user_id) VALUES (3, 'user3'); 
+</code></pre>
+
+<p>If you SELECT * FROM tig_users on server-2, you should see the <code>user3</code>.</p>
+
+<p>You can also re-check the <code>SHOW MASTER STATUS</code>/<code>SHOW SLAVE STATUS</code> and
+compare the <code>File</code>/<code>Position</code>.</p>
+
+<h1 id="server2asmaster">Server 2 as Master</h1>
+
+<p>The last step is to set server 2 as master of server 1.</p>
+
+<h2 id="beforeweprocedesomecautions">Before we procede, some cautions</h2>
+
+<p>A master/master setup requires some configuration to make <code>AUTO_INCREMENT</code>
+work correctly.</p>
+
+<p>Our config files already include the proper <code>auto_increment_increment</code> and
+<code>auto_increment_offset</code> values.</p>
+
+<p>You should read:</p>
+
+<ul>
+<li><a href="http://dev.mysql.com/doc/refman/5.0/en/server-system-variables.html#option_mysqld_auto-increment-increment" title="MySQL ::   MySQL 5.0 Reference Manual :: 5.1.3 System Variables">Explanation for <code>auto_increment_*</code> variables</a>;</li>
+<li><a href="http://dev.mysql.com/doc/refman/5.0/en/replication-features-auto-increment.html" title="MySQL ::   MySQL 5.0 Reference Manual :: 16.3.1.1 Replication and AUTO_INCREMENT">Notes about <code>AUTO_INCREMENT</code> and replication</a>.</li>
+</ul>
+
+<p>It boils down to this:</p>
+
+<ul>
+<li><code>auto_increment_increment</code> should be equal to the number of masters you have, N;</li>
+<li><code>auto_increment_offset</code> should be different, from 1 to N, on each master.</li>
+</ul>
+
+<h2 id="makeserver1slavetoserver2">Make server 1 slave to server 2</h2>
+
+<p>You need a replication user on server 2. I'll use the same one:</p>
+
+<pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root &lt; $HOWTO_DIR/sql/repl_user.sql
+</code></pre>
+
+<p>Connect to server 2, lock tables and record the master position:</p>
+
+<pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root tigasedb
+
+FLUSH TABLES WITH READ LOCK;
+SHOW MASTER STATUS;
+
++---------------------------+----------+--------------+------------------+
+| File                      | Position | Binlog_Do_DB | Binlog_Ignore_DB |
++---------------------------+----------+--------------+------------------+
+| mysql-server-2-bin.000004 |      482 |              |                  | 
++---------------------------+----------+--------------+------------------+
+1 row in set (0.00 sec)
+</code></pre>
+
+<p>Then hop over to server 1, and connect as root:</p>
+
+<pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root tigasedb
+</code></pre>
+
+<p>Make server 1 a slave with the proper master position:</p>
+
+<pre><code>CHANGE MASTER TO
+       MASTER_HOST='127.0.0.1',
+       MASTER_PORT=7002,
+       MASTER_USER='repl_tig',
+       MASTER_PASSWORD='pray4sync',
+       MASTER_LOG_FILE='mysql-server-2-bin.000004',
+       MASTER_LOG_POS=482;
+START SLAVE;
+</code></pre>
+
+<p>Release the lock on server 2. The easiest way is just quiting the mysql shell.</p>
+
+<p>You should have a proper master/master relation working between server-1
+and server-2.</p>
+
+<p>If you look at <code>SHOW MASTER STATUS</code> on server-2 and compare to
+<code>SHOW SLAVE STATUS\G</code> (use <code>\G</code> query terminator for a more useful layout)
+on server-1, you should see the same <code>File</code> and <code>Position</code> on server-2
+as <code>Master_Log_File</code> and <code>Read_Master_Log_Pos</code> on server-1.</p>
+
+<p>Do the same procedure inverting server-1 and server-2. You should also
+see equal values.</p>
+
+<h2 id="finaltests">Final tests</h2>
+
+<p>I recommend that you start two new connections, one to server-1 and the other to server-2.</p>
+
+<p>Select, insert, update, delete from each table, and see if everything is working.</p>
+
+<p>Also try on one of the connections:</p>
+
+<pre><code>CREATE TABLE test_ainc ( id INTEGER NOT NULL AUTO_INCREMENT PRIMARY KEY);
+</code></pre>
+
+<p>And then insert rows with:</p>
+
+<pre><code>INSERT INTO test_ainc VALUES (null), (null), (null);
+</code></pre>
+
+<p>Do this on both connections and see how the AUTO_INCREMENT columns just work.</p>
+
+<h1 id="finalnotes">Final Notes</h1>
+
+<h2 id="innodb_flush_log_at_trx_commit">innodb_flush_log_at_trx_commit</h2>
+
+<p><a href="http://www.mysqlperformanceblog.com/2007/11/01/innodb-performance-optimization-basics/" title="Innodb Performance Optimization Basics | MySQL Performance Blog">One of the recommendations for InnoDB performance</a>
+is to set <code>innodb_flush_log_at_trx_commit</code> to 2. The
+<a href="http://dev.mysql.com/doc/refman/5.0/en/replication-howto-masterbaseconfig.html" title="MySQL ::   MySQL 5.0 Reference Manual :: 16.1.1.2 Setting the Replication Master Configuration">MySQL documentation recommends setting to 1 as the most safe option</a>.</p>
+
+<h2 id="replicate-do-db">replicate-do-db</h2>
+
+<p>You could limit the replication to just the <code>tigasedb</code> database with a:</p>
+
+<pre><code>replicate-do-db = tigasedb
+</code></pre>
+
+<p>in the configuration file, <code>mysqld</code> section.</p>
+
+<p>Alternative, you could use this:</p>
+
+<pre><code>replicate-ignore-db=mysql
+</code></pre>
+
+<p>This will replicate all the databases, except the system mysql. This is
+usefull because it will replicate everything except users, passwords and
+<code>GRANT</code>/<code>REVOKE</code> statements.</p>
+
+<h2 id="masterconfig">master config</h2>
+
+<p>You should notice that I didn't set the master host, port and other
+settings on the configuration file.</p>
+
+<p>The <code>CHANGE MASTER</code> command writes that information in a <code>master.info</code>
+file. This file takes precedence over the configuration file.</p>
+
+<h1 id="links">Links</h1>
+
+<p>First, the best resource for all about replication will probably be the
+<a href="http://www.highperfmysql.com/" title="High Performance MySQL &raquo; Home">High Performance MySQL (2nd. ed.) book</a>.
+You should buy it.</p>
+
+<p>A list of useful links:</p>
+
+<ul>
+<li><a href="http://dev.mysql.com/doc/refman/5.0/en/replication.html" title="MySQL ::   MySQL 5.0 Reference Manual :: 16 Replication">The MySQL documentation about replication is very good</a>.
+If you follow each step carefuly you should be ok;</li>
+<li><a href="http://www.mysqlperformanceblog.com/" title="MySQL Performance Blog">The High-Performance MySQL site</a>
+is one of the best for all things MySQL. Make sure you
+<a href="http://www.mysqlperformanceblog.com/?s=replication" title="replication  | MySQL Performance Blog">search for <code>replication</code></a>;</li>
+<li>Browse
+<a href="http://dev.mysql.com/doc/refman/5.0/en/replication-notes.html" title="MySQL ::   MySQL 5.0 Reference Manual :: 16.3 Replication Notes and Tips">the Notes and Tips section</a>;</li>
+<li><a href="http://www.onlamp.com/pub/a/onlamp/2006/04/20/advanced-mysql-replication.html" title="ONLamp.com -- Advanced MySQL Replication Techniques">An old article about MySQL replication at OnLamp.com</a>.
+You should double-check the commands, but the graphics are pretty and usefull.</li>
+</ul>
+
+<p>The top hit on
+<a href="http://www.google.com/search?q=master/master+replication+mysql" title="master/master replication mysql - Google Search">Google for MySQL master/master setup</a>
+is a 
+<a href="http://www.howtoforge.com/mysql5_master_master_replication_debian_etch" title="Setting Up Master-Master Replication With MySQL 5 On Debian Etch | HowtoForge - Linux Howtos and Tutorials">how-to at HowtoForge</a>.
+Personally I found it a bit dense, but that's just me.</p>
+</body>
+</html>
