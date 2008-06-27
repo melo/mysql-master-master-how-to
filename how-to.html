@@ -41,7 +41,11 @@ ports 7001 and 7002.</p>
 
 <h2 id="schemafiles">Schema files</h2>
 
-<p>I'll use the Tigase MySQL schema file as my example schema.</p>
+<p>I'll use the
+<a href="http://www.tigase.org/" title="tigase.org | Open Source and Free (GPLv3) Jabber/XMPP environment.">Tigase</a>
+<a href="http://projects.tigase.org/server/trac/browser/trunk/database/mysql-schema.sql" title="/trunk/database/mysql-schema.sql - Tigase Server - Trac">MySQL schema file
+</a>
+as my example schema.</p>
 
 <p>The sample data I'll insert into the database, are just made up values
 and probably not even valid from the point of view of Tigase.</p>
@@ -64,8 +68,9 @@ different <code>server-id</code>;</li>
 server.</li>
 </ul>
 
-<p>For any mysql command to use a specific server, you just need to
-add a <code>--defaults-file=$HOWTO_DIR/etc/server-1.cnf</code>.</p>
+<p>For any MySQL command to use a specific server, you just need to
+add a <code>--defaults-file=$HOWTO_DIR/etc/server-1.cnf</code> (replace 1 with 2 to work
+on the second server).</p>
 
 <h2 id="starttwoservers">Start two servers</h2>
 
@@ -96,19 +101,19 @@ mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root
 <p><em>Please note</em> that this procedure did not set a <code>root</code> account password.
 This means that anybody can connect as <code>root</code> to your database.</p>
 
-<p>For production environments it is <em>strongly recommended</em> that you change
+<p>For production environments it is <strong>strongly recommended</strong> that you change
 the <code>root</code> password, and delete the anonymous accounts.</p>
 
 <p>For our tests purposes, we will not do that.</p>
 
 <h2 id="createsampledbwithdataonserver1">Create sample db with data on server1</h2>
 
-<p>On server-1, connect as root, and create the user used by the slave:</p>
+<p>On <code>server-1</code>, connect as root, and create the user used by the slave:</p>
 
 <pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root &lt; $HOWTO_DIR/sql/repl_user.sql
 </code></pre>
 
-<p>We will also create the test database, and load our test schema:</p>
+<p>We will also create the <code>tigasedb</code> database, and load our test schema:</p>
 
 <pre><code>mysqladmin --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root create tigasedb
 mysql --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root tigasedb &lt; $HOWTO_DIR/sql/tigase-mysql-schema.sql
@@ -125,13 +130,13 @@ insert some data on them to test:</p>
 <p>We need to obtain the current master replication position, create a
 stable snapshot of the data.</p>
 
-<p>Connect as root:</p>
+<p>Connect as <code>root</code>:</p>
 
 <pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root tigasedb
 </code></pre>
 
 <p>This connection must be left open for the rest of this procedure. This
-is required to leave the LOCK in place.</p>
+is required to leave the <code>LOCK</code> in place.</p>
 
 <p>Execute the following statements:</p>
 
@@ -157,8 +162,8 @@ SHOW MASTER STATUS;
           tigasedb &gt; tigasedb_dump.sql
 </code></pre>
 
-<p>Now we need to setup the slave. First, create the tigasedb database and
-load the dump taken on the master:</p>
+<p>Now we need to setup the slave. First, create the <code>tigasedb</code> database and
+load the SQL dump from the master:</p>
 
 <pre><code>mysqladmin --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root create tigasedb
 mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root tigasedb &lt; tigasedb_dump.sql
@@ -167,7 +172,7 @@ mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root tigasedb &lt; tigasedb
 <p>You should have the same data on both servers now.</p>
 
 <p>To finish the setup, you need to set the other master parameters on the
-slave. Connect as root:</p>
+slave. Connect as <code>root</code>:</p>
 
 <pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root
 </code></pre>
@@ -184,33 +189,34 @@ slave. Connect as root:</p>
 START SLAVE;
 </code></pre>
 
-<p>You can now end the server 1 session where the LOCK was created.</p>
+<p>You can now end the server-1 session where the <code>LOCK</code> was created.</p>
 
-<p>You should have a proper master/slave relation working between server-1
-and server-2.</p>
+<p>You should have a proper master/slave relation working between <code>server-1</code>
+and <code>server-2</code>.</p>
 
-<p>If you look at <code>SHOW MASTER STATUS</code> on server-1 and compare to
+<p>If you look at <code>SHOW MASTER STATUS</code> on <code>server-1</code> and compare to
 <code>SHOW SLAVE STATUS\G</code> (use <code>\G</code> query terminator for a more useful layout)
-on server-2, you should see the same <code>File</code> and <code>Position</code> on server-1
-as <code>Master_Log_File</code> and <code>Read_Master_Log_Pos</code> on server-2.</p>
+on <code>server-2</code>, you should see the same <code>File</code> and <code>Position</code> on <code>server-1</code>
+as <code>Master_Log_File</code> and <code>Read_Master_Log_Pos</code> on <code>server-2</code>.</p>
 
 <p>To test, insert a new row in the <code>tig_user</code> table.</p>
 
 <pre><code>INSERT INTO tig_users (uid, user_id) VALUES (3, 'user3'); 
 </code></pre>
 
-<p>If you SELECT * FROM tig_users on server-2, you should see the <code>user3</code>.</p>
+<p>If you <code>SELECT * FROM tig_users</code> on <code>server-2</code>, you should see the
+<code>user3</code> row.</p>
 
 <p>You can also re-check the <code>SHOW MASTER STATUS</code>/<code>SHOW SLAVE STATUS</code> and
 compare the <code>File</code>/<code>Position</code>.</p>
 
 <h1 id="server2asmaster">Server 2 as Master</h1>
 
-<p>The last step is to set server 2 as master of server 1.</p>
+<p>The last step is to set <code>server-2</code> as master of <code>server-1</code>.</p>
 
-<h2 id="beforeweprocedesomecautions">Before we procede, some cautions</h2>
+<h2 id="beforeweprocedesomenotes">Before we procede, some notes</h2>
 
-<p>A master/master setup requires some configuration to make <code>AUTO_INCREMENT</code>
+<p>A master/master setup requires some configurations to make <code>AUTO_INCREMENT</code>
 work correctly.</p>
 
 <p>Our config files already include the proper <code>auto_increment_increment</code> and
@@ -226,18 +232,18 @@ work correctly.</p>
 <p>It boils down to this:</p>
 
 <ul>
-<li><code>auto_increment_increment</code> should be equal to the number of masters you have, N;</li>
-<li><code>auto_increment_offset</code> should be different, from 1 to N, on each master.</li>
+<li><code>auto_increment_increment</code> should be equal to the number of masters you have, <code>N</code>;</li>
+<li><code>auto_increment_offset</code> should be different, from 1 to <code>N</code>, on each master.</li>
 </ul>
 
 <h2 id="makeserver1slavetoserver2">Make server 1 slave to server 2</h2>
 
-<p>You need a replication user on server 2. I'll use the same one:</p>
+<p>You need a replication user on <code>server-2</code>. We'll use the same one:</p>
 
 <pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root &lt; $HOWTO_DIR/sql/repl_user.sql
 </code></pre>
 
-<p>Connect to server 2, lock tables and record the master position:</p>
+<p>Connect to <code>server-2</code>, lock tables and record the master position:</p>
 
 <pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-2.cnf -u root tigasedb
 
@@ -252,12 +258,12 @@ SHOW MASTER STATUS;
 1 row in set (0.00 sec)
 </code></pre>
 
-<p>Then hop over to server 1, and connect as root:</p>
+<p>Then hop over to <code>server-1</code>, and connect as <code>root</code>:</p>
 
 <pre><code>mysql --defaults-file=$HOWTO_DIR/etc/server-1.cnf -u root tigasedb
 </code></pre>
 
-<p>Make server 1 a slave with the proper master position:</p>
+<p>Make <code>server-1</code> a slave with the proper master position:</p>
 
 <pre><code>CHANGE MASTER TO
        MASTER_HOST='127.0.0.1',
@@ -269,24 +275,27 @@ SHOW MASTER STATUS;
 START SLAVE;
 </code></pre>
 
-<p>Release the lock on server 2. The easiest way is just quiting the mysql shell.</p>
+<p>Release the lock on <code>server-2</code>. The easiest way is just quiting the
+<code>mysql</code> shell.</p>
 
-<p>You should have a proper master/master relation working between server-1
-and server-2.</p>
+<p>You should have a proper master/master relation working between <code>server-1</code>
+and <code>server-2</code>.</p>
 
-<p>If you look at <code>SHOW MASTER STATUS</code> on server-2 and compare to
+<p>If you look at <code>SHOW MASTER STATUS</code> on <code>server-2</code> and compare to
 <code>SHOW SLAVE STATUS\G</code> (use <code>\G</code> query terminator for a more useful layout)
-on server-1, you should see the same <code>File</code> and <code>Position</code> on server-2
-as <code>Master_Log_File</code> and <code>Read_Master_Log_Pos</code> on server-1.</p>
+on <code>server-1</code>, you should see the same <code>File</code> and <code>Position</code> on <code>server-2</code>
+as <code>Master_Log_File</code> and <code>Read_Master_Log_Pos</code> on <code>server-1</code>.</p>
 
-<p>Do the same procedure inverting server-1 and server-2. You should also
-see equal values.</p>
+<p>Do the same procedure again, but switch <code>server-1</code> with <code>server-2</code>. You
+should also see equal values.</p>
 
 <h2 id="finaltests">Final tests</h2>
 
-<p>I recommend that you start two new connections, one to server-1 and the other to server-2.</p>
+<p>I recommend that you start two new connections, one to <code>server-1</code> and
+the other to <code>server-2</code>.</p>
 
-<p>Select, insert, update, delete from each table, and see if everything is working.</p>
+<p>Select, insert, update, delete from each table, and see if everything
+is working.</p>
 
 <p>Also try on one of the connections:</p>
 
@@ -298,7 +307,8 @@ see equal values.</p>
 <pre><code>INSERT INTO test_ainc VALUES (null), (null), (null);
 </code></pre>
 
-<p>Do this on both connections and see how the AUTO_INCREMENT columns just work.</p>
+<p>Do this on both connections and see how the <code>AUTO_INCREMENT</code> columns
+just work.</p>
 
 <h1 id="finalnotes">Final Notes</h1>
 
